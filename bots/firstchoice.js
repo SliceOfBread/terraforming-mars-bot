@@ -30,10 +30,6 @@ function chooseFirstNumber (min, max) {
   return min;
 }
 
-function chooseAction(items) {
-  if (items)
-}
-
 // Choose corporation and initial cards
 exports.playInitialResearchPhase = async (game, availableCorporations, availableCards) => {
   const corporation = chooseFirstItem(availableCorporations).name;
