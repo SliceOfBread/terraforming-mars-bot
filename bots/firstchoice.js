@@ -30,6 +30,10 @@ function chooseFirstNumber (min, max) {
   return min;
 }
 
+function chooseAction(items) {
+  if (items)
+}
+
 // Choose corporation and initial cards
 exports.playInitialResearchPhase = async (game, availableCorporations, availableCards) => {
   const corporation = chooseFirstItem(availableCorporations).name;
@@ -74,7 +78,14 @@ exports.play = async (game, waitingFor) => {
       return actions;
 
     case 'OR_OPTIONS':
-      const option = chooseFirstItem(waitingFor.options);
+      let option = waitingFor.options[0]; // default is choose the first choice
+      if ((waitingFor.title == "Pay for a Standard Project") && (waitingFor.options.length > 1)) {
+        // if we are picking a SP, choose:
+        // Asteroid, if temp is not maxed
+        // Aquifer if Oceans not maxed
+        // else greenery
+        option = waitingFor.options[1];
+      }
       const choice = String(waitingFor.options.indexOf(option));
       return [[choice]].concat(await exports.play(game, option));
 
@@ -83,6 +94,7 @@ exports.play = async (game, waitingFor) => {
 
     case 'SELECT_CARD':
       let numberOfCards = waitingFor.minCardsToSelect;
+      if ((waitingFor.cards.length > 0) && (numberOfCards == 0)) numberOfCards = 1;
       let cards = [];
       while (cards.length < numberOfCards) {
         const remainingCards = waitingFor.cards.filter(c => !cards.includes(c.name));
