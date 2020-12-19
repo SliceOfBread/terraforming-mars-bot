@@ -1,9 +1,8 @@
 // Copyright © 2020 Jan Keromnes.
 // The following code is covered by the MIT license.
 
-// To test this bot:
-//   1. Run `node start-game`, then copy the player link
-//   2. Run `node play-bot PLAYER_LINK`
+// To test this bot, run this command:
+//   node play-bot
 
 // To implement your own bot:
 //   1. Copy 'random.js' to a new file, for example 'my-bot.js'
@@ -31,6 +30,7 @@ exports.playInitialResearchPhase = async (game, availableCorporations, available
 // Choose how to pay for a given card (or amount)
 function chooseHowToPay (game, waitingFor, card) {
   // Not-so-random: Prefer non-megacredit resources when available (in case there are not enough megacredits)
+  // FIXME: Overshoot non-megacredit resources if there are not enough megacredits
   let megaCredits = card ? card.calculatedCost : waitingFor.amount;
   let heat = 0;
   if (waitingFor.canUseHeat) {

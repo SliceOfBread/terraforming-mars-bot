@@ -3,17 +3,8 @@
 
 // Quantum Bot -- heavily inspired by https://boardgamegeek.com/thread/1847708/quantified-guide-tm-strategy
 
-// To test this bot:
-//   1. Run `node start-game`, then copy the player link
-//   2. Run `node play-bot --bot=bots/quantum.js PLAYER_LINK`
-
-// TODO: Remove
-function chooseRandomItem (items) {
-  return items[chooseRandomNumber(0, items.length - 1)];
-}
-function chooseRandomNumber (min, max) {
-  return min + Math.floor(Math.random() * (max - min + 1));
-}
+// To test this bot, run this command:
+//   node play-bot --bot=bots/quantum
 
 // Source: "6. Corporations" in https://boardgamegeek.com/thread/1847708/quantified-guide-tm-strategy
 function evaluateCorporation (corporation, game) {
@@ -30,26 +21,176 @@ function evaluateCorporation (corporation, game) {
       return 70;
     case 'Mining Guild':
       return 48; // TODO: Plus 8M for each bonus Steel Production you can gain early.
-    case 'Phobolog':
+    case 'PhoboLog':
       return 63;
-    case 'Credicor':
+    case 'CrediCor':
       return 57;
-    case 'Ecoline':
+    case 'EcoLine':
       return 62;
-    case 'UNMI':
+    case 'United Nations Mars Initiative':
       return 40;
     case 'Inventrix':
       return 51; // TODO: +4M if that Science Symbol fulfills the requirement of cards you plan to play early.
     case 'Thorgate':
       return 55;
     default:
-      throw new Error(`Unsupported corporation! ${corporation}`);
+      throw new Error(`Unsupported corporation! ${corporation.name}`);
   }
 }
 
 // Source: "1. Efficiency of Cards" in https://boardgamegeek.com/thread/1847708/quantified-guide-tm-strategy
 function evaluateCard (card, game) {
-  // TODO
+  let score = -card.calculatedCost;
+  if (card.metadata && card.metadata.victoryPoints) {
+    if (typeof card.metadata.victoryPoints === 'number') {
+      score += 5 * card.metadata.victoryPoints;
+    } else {
+      console.error(new Error('Unsupported victoryPoints format! ' + JSON.stringify(card.metadata.victoryPoints, null, 2)));
+    }
+  }
+  // HACK: Guess card effects by parsing the renderData (will definitely break unless tested)
+  if (card.metadata && card.metadata.renderData) {
+    console.log(card);
+    try {
+      let effectScore = 0;
+      let effectValues = [
+        // Bonus
+        {
+          'cards': 2,
+          'heat': 1,
+          'megacredits': 1,
+          'oceans': 14,
+          'plants': 2,
+          'steel': 2,
+          'temperature': 10,
+          'titanium': 2,
+          'tr': 10,
+        },
+        // Production
+        {
+          'energy': 7,
+          'heat': 6,
+          'megacredits': 5,
+          'plants': 10,
+          'steel': 8,
+          'titanium': 10,
+        },
+      ];
+      function parseRows (rows, level) {
+        for (const row of rows) {
+          let minus = false;
+          for (const item of row) {
+            if (item._rows) {
+              parseRows(item._rows, level + 1);
+              continue;
+            }
+            if (item.anyPlayer) {
+              // Ignore effects to other players.
+              continue;
+            }
+            switch (item.type) {
+              case '-':
+                minus = true;
+                break;
+              case '+':
+                minus = false;
+                break;
+              case ' ':
+                // Ignore.
+                break;
+              case 'nbsp':
+                // Ignore.
+                break;
+              case 'text':
+                // Ignore.
+                break;
+              default:
+                if (effectValues[level][item.type]) {
+                  effectScore += (minus ? -1 : 1) * item.amount * effectValues[level][item.type];
+                  continue;
+                }
+                if (item.tile) {
+                  effectScore += 4;
+                  continue;
+                }
+                throw new Error(`Unsupported renderData type ${item.type} in ` + JSON.stringify(card.metadata.renderData, null, 2));
+            }
+          }
+        }
+      }
+      parseRows(card.metadata.renderData._rows, 0);
+      score += effectScore;
+    } catch (error) {
+      console.error('Could not parse card renderData');
+      console.error(error);
+    }
+  }
+  return score;
+}
+
+// Source: https://boardgamegeek.com/thread/1847708/quantified-guide-tm-strategy
+function evaluateOption (option, game) {
+  if (option.playerInputType === 'OR_OPTIONS') {
+    // Return the value of the best sub-option
+    return sortByEstimatedValue(option.options, evaluateOption, game)[0].value
+  }
+  if (option.playerInputType === 'SELECT_HOW_TO_PAY_FOR_CARD') {
+    // Return the value of the best playable card
+    return sortByEstimatedValue(option.cards, evaluateCard, game)[0].value;
+  }
+  if (option.title.message && option.title.message.match(/Take first action of.*/)) {
+    // We definitely want to do that
+    return 100;
+  }
+  if (option.title.match(/Convert \d+ plants into greenery/)) {
+    // Source: "2.1 Card Advantage"
+    return 19;
+  }
+  if (option.title === 'Convert 8 heat into temperature') {
+    // Source: "1.1 Standard Cards"
+    return 10;
+  }
+  if (option.title === 'Power plant (11 MC)') {
+    // Source: "2.1 Card Advantage"
+    return -4;
+  }
+  if (option.title === 'Asteroid (14 MC)') {
+    // Source: "2.1 Card Advantage"
+    return -4;
+  }
+  if (option.title === 'Aquifer (18 MC)') {
+    // Source: "2.1 Card Advantage"
+    return -4;
+  }
+  if (option.title === 'Greenery (23 MC)') {
+    // Source: "2.1 Card Advantage"
+    return -4;
+  }
+  if (option.title === 'City (25 MC)') {
+    // Source: "2.1 Card Advantage"
+    return -4;
+  }
+  if (option.title === 'Pass for this generation') {
+    // Only pass when no "good" choices remain
+    return -100;
+  }
+  if (option.title === 'Sell patents') {
+    // Don't sell patents
+    return -100;
+  }
+  console.error(new Error('Could not evaluate option! ' + JSON.stringify(option, null, 2)));
+  return -100; // Don't play options we don't understand, except if there is no other choice.
+}
+
+function sortByEstimatedValue (items, evaluator, game) {
+  // Evaluate all items
+  items.forEach(item => {
+    if (!('value' in item)) {
+      item.value = evaluator(item, game);
+    }
+  });
+  // Sort items by estimated value
+  return [...items].sort((a, b) => a.value > b.value ? -1 : 1);
 }
 
 // Choose corporation and initial cards
@@ -57,23 +198,22 @@ exports.playInitialResearchPhase = async (game, availableCorporations, available
   console.log(availableCorporations, availableCards, game);
 
   // Sort corporation by estimated value
-  const sortedCorporations = availableCorporations
-    .map(c => {
-      c.value = evaluateCorporation(c, game);
-      return c;
-    })
-    .sort((a, b) => a.value > b.value ? -1 : 1);
+  const sortedCorporations = sortByEstimatedValue(availableCorporations, evaluateCorporation, game);
 
   // Pick the best available corporation
   const corporation = sortedCorporations[0];
 
-  const initialCards = [ chooseRandomItem(availableCards).name ];
-  return [[corporation.name], initialCards];
+  // Pick the best available cards
+  const initialCards = availableCards.filter(c => evaluateCard(c, game) > 3);
+
+  console.log('Quantum bot chose:', corporation, initialCards);
+  return [[corporation.name], initialCards.map(c => c.name)];
 }
 
 // Choose how to pay for a given card (or amount)
 function chooseHowToPay (game, waitingFor, card) {
-  // Not-so-random: Prefer non-megacredit resources when available (in case there are not enough megacredits)
+  // Prefer non-megacredit resources when available (in case there are not enough megacredits)
+  // FIXME: Overshoot non-megacredit resources if there are not enough megacredits
   let megaCredits = card ? card.calculatedCost : waitingFor.amount;
   let heat = 0;
   if (waitingFor.canUseHeat) {
@@ -96,6 +236,14 @@ function chooseHowToPay (game, waitingFor, card) {
   return { heat, megaCredits, steel, titanium, microbes, floaters, isResearchPhase };
 }
 
+// TODO: Remove
+function chooseRandomItem (items) {
+  return items[chooseRandomNumber(0, items.length - 1)];
+}
+function chooseRandomNumber (min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
 // Play a turn of Terraforming Mars
 exports.play = async (game, waitingFor) => {
   console.log('Game is waiting for:', JSON.stringify(waitingFor, null, 2));
@@ -108,7 +256,11 @@ exports.play = async (game, waitingFor) => {
       return actions;
 
     case 'OR_OPTIONS':
-      const option = chooseRandomItem(waitingFor.options);
+      // Sort playable options by estimated value
+      const sortedOptions = sortByEstimatedValue(waitingFor.options, evaluateOption, game);
+
+      // Pick the best playable option
+      const option = sortedOptions[0];
       const choice = String(waitingFor.options.indexOf(option));
       return [[choice]].concat(await exports.play(game, option));
 
@@ -116,22 +268,19 @@ exports.play = async (game, waitingFor) => {
       return [[String(chooseRandomNumber(waitingFor.min, waitingFor.max))]];
 
     case 'SELECT_CARD':
-      let numberOfCards = chooseRandomNumber(waitingFor.minCardsToSelect, waitingFor.maxCardsToSelect);
-      let cards = [];
-      while (cards.length < numberOfCards) {
-        const remainingCards = waitingFor.cards.filter(c => !cards.includes(c.name));
-        cards.push(chooseRandomItem(remainingCards).name);
+      // Pick the best available cards
+      const sortedCards = sortByEstimatedValue(waitingFor.cards, evaluateCard, game);
+      let numberOfCards = waitingFor.minCardsToSelect;
+      while (numberOfCards < waitingFor.maxCardsToSelect && sortedCards[numberOfCards].value > 3) {
+        numberOfCards++;
       }
-      return [cards];
+      return [sortedCards.slice(0, numberOfCards).map(c => c.name)];
 
     case 'SELECT_HOW_TO_PAY':
       return [[JSON.stringify(chooseHowToPay(game, waitingFor))]];
 
     case 'SELECT_HOW_TO_PAY_FOR_CARD':
       const card = chooseRandomItem(waitingFor.cards);
-      // For some reason, card.calculatedCost is always 0. So, get this info from the cards in hand.
-      const cardInHand = game.cardsInHand.find(c => c.name === card.name);
-      card.calculatedCost = cardInHand.calculatedCost;
       return [[card.name, JSON.stringify(chooseHowToPay(game, waitingFor, card))]];
 
     case 'SELECT_OPTION':
