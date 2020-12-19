@@ -15,13 +15,7 @@
 
 // Good luck & have fun!
 
-// The random bot will always choose randomly when presented with a choice
-function chooseRandomItem (items) {
-  return items[chooseRandomNumber(0, items.length - 1)];
-}
-function chooseRandomNumber (min, max) {
-  return min + Math.floor(Math.random() * (max - min + 1));
-}
+
 
 function chooseFirstItem (items) {
   return items[0];
@@ -50,12 +44,21 @@ function chooseHowToPay (game, waitingFor, card) {
   if ((waitingFor.canUseSteel || card && card.tags.includes('building'))) {
     steel = Math.min(game.steel, Math.floor(megaCredits / game.steelValue));
     megaCredits -= steel * game.steelValue;
+    while ((megaCredits > game.megaCredits) && (steel < game.steel)) {
+      steel++;
+      megaCredits -= game.steelValue;
+    }
   }
   let titanium = 0;
   if ((waitingFor.canUseTitanium || card && card.tags.includes('space'))) {
     titanium = Math.min(game.titanium, Math.floor(megaCredits / game.titaniumValue));
     megaCredits -= titanium * game.titaniumValue;
+    while ((megaCredits > game.megaCredits) && (titanium < game.titanium)) {
+      titanium++;
+      megaCredits -= game.titaniumValue;
+    }
   }
+  if (megaCredits < 0) megaCredits = 0;
   let microbes = 0;
   let floaters = 0;
   let isResearchPhase = false;
@@ -90,7 +93,7 @@ exports.play = async (game, waitingFor) => {
 
     case 'SELECT_CARD':
       let numberOfCards = waitingFor.minCardsToSelect;
-      if ((waitingFor.cards.length > 0) && (numberOfCards == 0)) numberOfCards = 1;
+      //if ((waitingFor.cards.length > 0) && (numberOfCards == 0)) numberOfCards = 1;
       let cards = [];
       while (cards.length < numberOfCards) {
         const remainingCards = waitingFor.cards.filter(c => !cards.includes(c.name));
