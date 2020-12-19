@@ -8,7 +8,7 @@ A proof-of-concept Terraforming Mars AI meant to play https://github.com/bafolts
 
 Open this repository in [Gitpod](https://www.gitpod.io), a free online development environment:
 
-[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/jankeromnes/terraforming-mars-bot)
+[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/SliceOfBread/terraforming-mars-bot)
 
 This will give you a cloud workspace containing this repository already set-up and running:
 
