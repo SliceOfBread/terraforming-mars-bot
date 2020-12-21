@@ -67,7 +67,7 @@ function chooseHowToPay (game, waitingFor, card) {
 
 // Play a turn of Terraforming Mars
 exports.play = async (game, waitingFor) => {
-  console.log('Game is waiting for:', JSON.stringify(waitingFor, null, 2));
+  //console.log('Game is waiting for:', JSON.stringify(waitingFor, null, 2));
   switch (waitingFor.playerInputType) {
     case 'AND_OPTIONS':
       const actions = [];
