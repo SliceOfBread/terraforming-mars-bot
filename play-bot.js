@@ -8,6 +8,7 @@ const exec = util.promisify(require('child_process').exec);
 const request = require('./lib/request');
 const { CardFinder } = require('./terraforming-mars/build/src/CardFinder');
 const { PlayerInputTypes } = require('./terraforming-mars/build/src/PlayerInputTypes');
+const { SpaceBonus } = require('./terraforming-mars/build/src/SpaceBonus');
 
 const usage = `USAGE
 
@@ -17,6 +18,9 @@ OPTIONS
 
     -h, --help
         Print usage information
+
+    --bot=BOT
+        Play with a specific bot script from the bots/ directory (default is --bot=random)
 
     --games=NUMBER
         Play NUMBER of games in a row, then print score statistics
@@ -67,8 +71,9 @@ const cardFinder = new CardFinder();
 })();
 
 async function playGame (playerLink) {
+  const botPath = argv.bot || 'random';
   if (!playerLink) {
-    playerLink = (await exec('node start-game --quiet')).stdout.trim();
+    playerLink = (await exec(`node start-game --players=${botPath} --quiet`)).stdout.trim();
     console.log('Auto-started new solo game! Bot player link: ' + playerLink);
   }
   const playerUrl = new URL(playerLink);
@@ -76,7 +81,7 @@ async function playGame (playerLink) {
   const playerId = playerUrl.searchParams.get('id');
 
   // Load bot script
-  const bot = require('./' + path.join('.', argv.bot || 'bots/random'));
+  const bot = require('./' + path.join('bots', botPath));
 
   // Initial research phase
   let game = await request('GET', `${serverUrl}/api/player?id=${playerId}`);
@@ -91,6 +96,7 @@ async function playGame (playerLink) {
   // Play the game until the end
   while (game.phase !== 'end') {
     annotateWaitingFor(game, game.waitingFor);
+    annotateMapSpaces(game);
     logGameState(game);
     move = await bot.play(game, game.waitingFor);
     console.log('Bot plays:', move);
@@ -147,6 +153,13 @@ function annotateCards (game, cards) {
       card.metadata = projectCard.metadata;
     }
   }
+}
+
+// Add additional useful information to map spaces
+function annotateMapSpaces (game) {
+  game.spaces.forEach(space => {
+    space.placementBonus = space.bonus.map(b => SpaceBonus[b]);
+  });
 }
 
 function logGameState (game) {
