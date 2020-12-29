@@ -40,7 +40,7 @@ const cardFinder = new CardFinder();
   const games = argv.games || 1;
   while (scores.length < games) {
     try {
-      const game = await playGame(argv._[0]);
+      const game = await playGame(argv._[0], argv.bot);
       console.log('Final scores:\n' + game.players.map(p => `  - ${p.name} (${p.color}): ${p.victoryPointsBreakdown.total} points`).join('\n'));
       const score = {};
       for (const p of game.players) {
@@ -70,8 +70,10 @@ const cardFinder = new CardFinder();
   }
 })();
 
-async function playGame (playerLink) {
-  const botPath = argv.bot || 'random';
+async function playGame (playerLink, botPath) {
+  if  (!botPath) {
+    botPath = 'random';
+  }
   if (!playerLink) {
     playerLink = (await exec(`node start-game --players=${botPath} --quiet`)).stdout.trim();
     console.log('Auto-started new solo game! Bot player link: ' + playerLink);
@@ -84,14 +86,13 @@ async function playGame (playerLink) {
   const bot = require('./' + path.join('bots', botPath));
 
   // Initial research phase
-  let game = await request('GET', `${serverUrl}/api/player?id=${playerId}`);
+  let game = await waitForTurn(serverUrl, playerId);
   logGameState(game);
   const availableCorporations = game.waitingFor.options[0].cards;
   const availableCards = game.waitingFor.options[1].cards;
   annotateCards(game, availableCards);
   let move = await bot.playInitialResearchPhase(game, availableCorporations, availableCards);
-  console.log('Bot plays:', move);
-  game = await request('POST', `${serverUrl}/player/input?id=${playerId}`, move);
+  game = await playMoveAndWaitForTurn(serverUrl, playerId, move);
 
   // Play the game until the end
   while (game.phase !== 'end') {
@@ -100,11 +101,25 @@ async function playGame (playerLink) {
     logGameState(game);
     move = await bot.play(game, game.waitingFor);
     console.log('Bot plays:', move);
-    game = await request('POST', `${serverUrl}/player/input?id=${playerId}`, move);
+    game = await playMoveAndWaitForTurn(serverUrl, playerId, move);
   }
 
   console.log('Game ended!');
   logGameState(game);
+  return game;
+}
+
+async function playMoveAndWaitForTurn (serverUrl, playerId, move) {
+  console.log('Bot plays:', move);
+  let game = await request('POST', `${serverUrl}/player/input?id=${playerId}`, move);
+  return await waitForTurn(serverUrl, playerId, game);
+}
+
+async function waitForTurn (serverUrl, playerId, game) {
+  while (!game || !('waitingFor' in game) && game.phase !== 'end') {
+    await new Promise(resolve => setTimeout(resolve, 30));
+    game = await request('GET', `${serverUrl}/api/player?id=${playerId}`);
+  }
   return game;
 }
 
@@ -129,8 +144,8 @@ function annotateWaitingFor (game, waitingFor) {
 // Add additional useful information to cards
 function annotateCards (game, cards) {
   for (const card of cards) {
-    // For some reason, card.calculatedCost is always 0.
-    // But we get this info from the dealt project cards or cards in hand.
+    // BUG: For some reason, card.calculatedCost is always 0.
+    // But we can get this info from the dealt project cards or cards in hand.
     const cardInHand = game.cardsInHand.find(c => c.name === card.name);
     if (card.calculatedCost === 0 && cardInHand && cardInHand.calculatedCost) {
       card.calculatedCost = cardInHand.calculatedCost;
@@ -146,6 +161,11 @@ function annotateCards (game, cards) {
       continue;
     }
     card.cardType = projectCard.cardType;
+    // If we still don't know the card's cost, get it from the reference card.
+    /* FIXME: Why does this reduce the average score of Quantum Bot by 7 points?
+    if (card.calculatedCost === 0) {
+      card.calculatedCost = projectCard.cost;
+    } */
     if (!('tags' in card)) {
       card.tags = projectCard.tags;
     }

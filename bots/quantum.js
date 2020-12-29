@@ -50,16 +50,17 @@ function evaluateCard (card, game) {
   }
   // HACK: Guess card effects by parsing the renderData (will definitely break unless tested)
   if (card.metadata && card.metadata.renderData) {
-    console.log(card);
     try {
       let effectScore = 0;
       let effectValues = [
         // Bonus
         {
           'cards': 2,
+          'city': 9, // Source: "4.5 Points from City"
           'heat': 1,
           'megacredits': 1,
           'oceans': 14,
+          'oxygen': 10,
           'plants': 2,
           'steel': 2,
           'temperature': 10,
@@ -130,6 +131,7 @@ function evaluateCard (card, game) {
 
 // Source: https://boardgamegeek.com/thread/1847708/quantified-guide-tm-strategy
 function evaluateOption (option, game) {
+  let match = null;
   if (option.playerInputType === 'OR_OPTIONS') {
     // Return the value of the best sub-option
     return sortByEstimatedValue(option.options, evaluateOption, game)[0].value
@@ -138,11 +140,20 @@ function evaluateOption (option, game) {
     // Return the value of the best playable card
     return sortByEstimatedValue(option.cards, evaluateCard, game)[0].value;
   }
+  if (option.playerInputType === 'SELECT_SPACE') {
+    // Return the value of the best available space
+    const spaces = option.availableSpaces.map(id => game.spaces.find(s => s.id === id));
+    return sortByEstimatedValue(spaces, evaluateSpace, game)[0].value;
+  }
   if (option.title.message && option.title.message.match(/Take first action of.*/)) {
     // We definitely want to do that
     return 100;
   }
-  if (option.title.match(/Convert \d+ plants into greenery/)) {
+  if (match = option.buttonLabel.match(/Claim - \((.*)\)/)) {
+    // Source: "1.1 Standard Cards"
+    return 25;
+  }
+  if (match = option.title.match(/Convert (\d+) plants into greenery/)) {
     // Source: "2.1 Card Advantage"
     return 19;
   }
@@ -150,25 +161,30 @@ function evaluateOption (option, game) {
     // Source: "1.1 Standard Cards"
     return 10;
   }
-  if (option.title === 'Power plant (11 MC)') {
-    // Source: "2.1 Card Advantage"
-    return -4;
+  if (match = option.title.match(/Power plant \((\d+) MC\)/)) {
+    const cost = parseInt(match[1], 10)
+    // Source: "1.1 Standard Cards"
+    return 7 - cost;
   }
-  if (option.title === 'Asteroid (14 MC)') {
-    // Source: "2.1 Card Advantage"
-    return -4;
+  if (match = option.title.match(/Asteroid \((\d+) MC\)/)) {
+    const cost = parseInt(match[1], 10);
+    // Source: "1.1 Standard Cards"
+    return 10 - cost;
   }
-  if (option.title === 'Aquifer (18 MC)') {
-    // Source: "2.1 Card Advantage"
-    return -4;
+  if (match = option.title.match(/Aquifer \((\d+) MC\)/)) {
+    const cost = parseInt(match[1], 10);
+    // Source: "1.1 Standard Cards"
+    return 14 - cost;
   }
-  if (option.title === 'Greenery (23 MC)') {
+  if (match = option.title.match(/Greenery \((\d+) MC\)/)) {
+    const cost = parseInt(match[1], 10);
     // Source: "2.1 Card Advantage"
-    return -4;
+    return 19 - cost;
   }
-  if (option.title === 'City (25 MC)') {
-    // Source: "2.1 Card Advantage"
-    return -4;
+  if (match = option.title.match(/City \((\d+) MC\)/)) {
+    const cost = parseInt(match[1], 10);
+    // Source: "4.5 Points from City"
+    return 9 - cost;
   }
   if (option.title === 'Pass for this generation') {
     // Only pass when no "good" choices remain
@@ -176,7 +192,7 @@ function evaluateOption (option, game) {
   }
   if (option.title === 'Sell patents') {
     // Don't sell patents
-    return -100;
+    return -101;
   }
   console.error(new Error('Could not evaluate option! ' + JSON.stringify(option, null, 2)));
   return -100; // Don't play options we don't understand, except if there is no other choice.
@@ -212,7 +228,15 @@ function sortByEstimatedValue (items, evaluator, game) {
     }
   });
   // Sort items by estimated value
-  return [...items].sort((a, b) => a.value > b.value ? -1 : 1);
+  return shuffle([...items]).sort((a, b) => a.value > b.value ? -1 : 1);
+}
+
+function shuffle (items) {
+    for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+    }
+    return items;
 }
 
 // Choose corporation and initial cards
@@ -235,7 +259,6 @@ exports.playInitialResearchPhase = async (game, availableCorporations, available
 // Choose how to pay for a given card (or amount)
 function chooseHowToPay (game, waitingFor, card) {
   // Prefer non-megacredit resources when available (in case there are not enough megacredits)
-  // FIXME: Overshoot non-megacredit resources if there are not enough megacredits
   let megaCredits = card ? card.calculatedCost : waitingFor.amount;
   let heat = 0;
   if (waitingFor.canUseHeat) {
@@ -246,11 +269,21 @@ function chooseHowToPay (game, waitingFor, card) {
   if ((waitingFor.canUseSteel || card && card.tags.includes('building'))) {
     steel = Math.min(game.steel, Math.floor(megaCredits / game.steelValue));
     megaCredits -= steel * game.steelValue;
+    // If there aren't enough mega credits left, we may need to overshoot on steel.
+    if (game.megaCredits < megaCredits  && game.steel > steel) {
+      steel++;
+      megaCredits = Math.max(0, megaCredits - game.steelValue);
+    }
   }
   let titanium = 0;
   if ((waitingFor.canUseTitanium || card && card.tags.includes('space'))) {
     titanium = Math.min(game.titanium, Math.floor(megaCredits / game.titaniumValue));
     megaCredits -= titanium * game.titaniumValue;
+    // If there still aren't enough mega credits left, we may need to overshoot on titanium.
+    if (game.megaCredits < megaCredits  && game.titanium > titanium) {
+      titanium++;
+      megaCredits = Math.max(0, megaCredits - game.titaniumValue);
+    }
   }
   let microbes = 0;
   let floaters = 0;
@@ -291,6 +324,7 @@ exports.play = async (game, waitingFor) => {
 
     case 'SELECT_CARD':
       // Pick the best available cards
+      // TODO reverse when "title": "Select a card to discard" / "buttonLabel": "Discard",
       const sortedCards = sortByEstimatedValue(waitingFor.cards, evaluateCard, game);
       let numberOfCards = waitingFor.minCardsToSelect;
       while (numberOfCards < waitingFor.maxCardsToSelect && sortedCards[numberOfCards].value > 3) {
@@ -309,7 +343,7 @@ exports.play = async (game, waitingFor) => {
       return [['1']];
 
     case 'SELECT_PLAYER':
-      throw new Error(`Unsupported player input type! ${waitingFor.playerInputType} (${waitingFor.inputType})`);
+      return [[chooseRandomItem(waitingFor.players)]];
 
     case 'SELECT_SPACE':
       // Pick the best available space
